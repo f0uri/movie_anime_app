@@ -11,7 +11,7 @@
 
 set -euo pipefail
 
-BRANCH="arena/01a011f7-movie-anime-app"
+BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 
 mkdir -p .github/workflows
 cp ci/build-apk.yml .github/workflows/build-apk.yml
