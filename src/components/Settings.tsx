@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { X, KeyRound, Check, Loader2, Sparkles, Moon, Sun, Zap, Type } from 'lucide-react'
 import type { Settings } from '../lib/store'
+import { PROVIDERS, streamDirect } from '../lib/engine'
 
 interface ProviderInfo { id: string; label: string; models: string[]; vision: boolean }
 
@@ -12,7 +13,7 @@ export function SettingsSheet({
   const [verify, setVerify] = useState<{ state: 'idle' | 'busy' | 'ok' | 'err'; msg?: string }>({ state: 'idle' })
 
   useEffect(() => {
-    fetch('/api/health').then((r) => r.json()).then((d) => setProviders(d.providers || [])).catch(() => {})
+    setProviders(Object.entries(PROVIDERS).map(([id, p]) => ({ id, label: p.label, models: p.models, vision: p.vision })))
   }, [])
 
   const set = (patch: Partial<Settings>) => {
@@ -26,13 +27,13 @@ export function SettingsSheet({
   async function test() {
     setVerify({ state: 'busy' })
     try {
-      const r = await fetch('/api/verify', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ provider: local.provider, apiKey: local.apiKey, model: local.model, baseUrl: local.baseUrl }),
+      let out = ''
+      await streamDirect({
+        settings: { ...local, temperature: 0 },
+        messages: [{ role: 'user', content: 'قل: جاهز' }],
+        onDelta: (t) => { out += t },
       })
-      const d = await r.json()
-      setVerify(d.ok ? { state: 'ok', msg: d.sample } : { state: 'err', msg: d.error })
+      setVerify({ state: 'ok', msg: out.slice(0, 120) })
     } catch (e: any) {
       setVerify({ state: 'err', msg: String(e?.message || e) })
     }

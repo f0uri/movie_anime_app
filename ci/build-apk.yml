@@ -1,0 +1,94 @@
+name: بناء APK ونشره
+
+# يمكن تشغيله يدويًا، أو تلقائيًا عند الدفع إلى فرع العمل، أو عند إنشاء وسم v*
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'arena/**'
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: جلب الشيفرة
+        uses: actions/checkout@v4
+
+      - name: تهيئة Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: تهيئة Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: تهيئة Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: تثبيت الاعتماديات
+        run: npm ci
+
+      - name: بناء الواجهة ومزامنة Capacitor
+        run: |
+          npx vite build
+          npx cap sync android
+
+      - name: إنشاء مفتاح التوقيع
+        run: |
+          keytool -genkeypair -v \
+            -keystore android/lumen.keystore \
+            -alias lumen \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass lumen2026 -keypass lumen2026 \
+            -dname "CN=Lumen, OU=Arena, O=Arena AI, L=Marrakesh, C=MA"
+
+      - name: بناء APK (release موقّع)
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: بناء APK (debug)
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: تجهيز الملفات للنشر
+        run: |
+          mkdir -p out
+          cp android/app/build/outputs/apk/release/app-release*.apk out/lumen-release.apk 2>/dev/null || true
+          cp android/app/build/outputs/apk/debug/app-debug.apk out/lumen-debug.apk
+          ls -lh out/
+
+      - name: رفع الأثر (Artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: lumen-apk
+          path: out/*.apk
+          retention-days: 90
+
+      - name: نشر إصدار مع رابط تنزيل مباشر
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('apk-{0}', github.run_number) }}
+          name: لومين ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('build {0}', github.run_number) }}
+          body: |
+            ## تطبيق لومين لأندرويد
+
+            نزّل الملف `lumen-release.apk` وثبّته على هاتفك.
+
+            - يعمل **بالكامل بدون إنترنت** لتحليل الملفات (PDF، Word، Excel، ZIP، صور، شيفرة…).
+            - لتفعيل القدرات التوليدية الكاملة، أضف مفتاح مزوّد من داخل التطبيق (⚙️ الإعدادات).
+            - الحد الأدنى: أندرويد 7.0 (API 24).
+
+            > عند التثبيت سيطلب أندرويد السماح بـ«تثبيت تطبيقات من مصادر غير معروفة» — هذا طبيعي لأي APK خارج المتجر.
+          files: out/*.apk
+          fail_on_unmatched_files: true

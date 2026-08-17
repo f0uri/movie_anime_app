@@ -4,24 +4,24 @@
  * إحصاءات، استخلاص، بحث، تلخيص استخراجي، فحص شيفرة، وتحليل بيانات جدولية.
  */
 
-const AR_STOP = new Set('من في على إلى عن هذا هذه ذلك تلك التي الذي وهو وهي ثم قد كان كانت مع أن إن لا ما هل كل بعض بين بعد قبل عند حتى أو أم لكن حيث كما إذا لم لن هو هي هم نحن أنا أنت به له لها فيه فيها هناك يكون تكون'.split(/\s+/))
-const EN_STOP = new Set('the a an and or but if of to in on at for with from by as is are was were be been being this that these those it its they them we you i he she his her not no do does did done have has had will would can could should may might there here what which who whom whose how when where why than then so such'.split(/\s+/))
+const AR_STOP = new Set<string>('من في على إلى عن هذا هذه ذلك تلك التي الذي وهو وهي ثم قد كان كانت مع أن إن لا ما هل كل بعض بين بعد قبل عند حتى أو أم لكن حيث كما إذا لم لن هو هي هم نحن أنا أنت به له لها فيه فيها هناك يكون تكون'.split(/\s+/))
+const EN_STOP = new Set<string>('the a an and or but if of to in on at for with from by as is are was were be been being this that these those it its they them we you i he she his her not no do does did done have has had will would can could should may might there here what which who whom whose how when where why than then so such'.split(/\s+/))
 
-const norm = (s) => s.replace(/[\u064B-\u0652\u0640]/g, '').replace(/[إأآا]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه')
+const norm = (s: string) => s.replace(/[\u064B-\u0652\u0640]/g, '').replace(/[إأآا]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه')
 
-export function tokenize(text) {
+export function tokenize(text: string) {
   return norm(text.toLowerCase())
     .split(/[^\p{L}\p{N}_]+/u)
     .filter((w) => w.length > 2 && !AR_STOP.has(w) && !EN_STOP.has(w))
 }
 
-export function keywords(text, n = 12) {
-  const freq = new Map()
+export function keywords(text: string, n = 12) {
+  const freq = new Map<string, number>()
   for (const w of tokenize(text)) freq.set(w, (freq.get(w) || 0) + 1)
   return [...freq.entries()].sort((a, b) => b[1] - a[1]).slice(0, n)
 }
 
-function sentences(text) {
+function sentences(text: string): string[] {
   return text
     .replace(/\s+/g, ' ')
     .split(/(?<=[.!?؟。]|\n)\s+/)
@@ -30,23 +30,23 @@ function sentences(text) {
 }
 
 /** TextRank-lite extractive summary */
-export function summarize(text, max = 5) {
+export function summarize(text: string, max = 5): string[] {
   const sents = sentences(text)
   if (sents.length <= max) return sents
-  const freq = new Map()
+  const freq = new Map<string, number>()
   for (const w of tokenize(text)) freq.set(w, (freq.get(w) || 0) + 1)
   const peak = Math.max(1, ...freq.values())
-  const scored = sents.map((s, i) => {
+  const scored = sents.map((s: string, i: number) => {
     const toks = tokenize(s)
     if (!toks.length) return { s, i, score: 0 }
     let score = toks.reduce((a, w) => a + (freq.get(w) || 0) / peak, 0) / Math.sqrt(toks.length)
     if (i < 3) score *= 1.25
     return { s, i, score }
   })
-  return scored.sort((a, b) => b.score - a.score).slice(0, max).sort((a, b) => a.i - b.i).map((x) => x.s)
+  return scored.sort((a: any, b: any) => b.score - a.score).slice(0, max).sort((a: any, b: any) => a.i - b.i).map((x: any) => x.s)
 }
 
-export function textStats(text) {
+export function textStats(text: string) {
   const words = text.trim().split(/\s+/).filter(Boolean)
   const lines = text.split('\n')
   const chars = text.length
@@ -63,16 +63,16 @@ export function textStats(text) {
   }
 }
 
-function codeReview(text, name = '') {
-  const notes = []
+function codeReview(text: string, _name = ''): string[] {
+  const notes: string[] = []
   const lines = text.split('\n')
-  const long = lines.map((l, i) => [i + 1, l]).filter(([, l]) => l.length > 120)
+  const long = lines.map((l, i) => [i + 1, l] as [number, string]).filter(([, l]) => l.length > 120)
   if (long.length) notes.push(`**${long.length}** سطر يتجاوز 120 حرفًا (أطولها السطر ${long[0][0]}).`)
-  const todos = lines.map((l, i) => [i + 1, l]).filter(([, l]) => /TODO|FIXME|HACK|XXX/i.test(l))
+  const todos = lines.map((l, i) => [i + 1, l] as [number, string]).filter(([, l]) => /TODO|FIXME|HACK|XXX/i.test(l))
   if (todos.length) notes.push(`**${todos.length}** ملاحظة TODO/FIXME: ${todos.slice(0, 3).map(([n]) => 'س' + n).join('، ')}.`)
   const logs = lines.filter((l) => /console\.log|print\(|System\.out|var_dump|dd\(/.test(l)).length
   if (logs) notes.push(`**${logs}** استدعاء طباعة/تسجيل — يُستحسن إزالتها من الإنتاج.`)
-  const secrets = lines.map((l, i) => [i + 1, l]).filter(([, l]) => /(api[_-]?key|secret|password|token)\s*[:=]\s*['"][^'"]{8,}/i.test(l))
+  const secrets = lines.map((l, i) => [i + 1, l] as [number, string]).filter(([, l]) => /(api[_-]?key|secret|password|token)\s*[:=]\s*['"][^'"]{8,}/i.test(l))
   if (secrets.length) notes.push(`⚠️ **${secrets.length}** سر محتمل مكتوب مباشرة في الشيفرة (السطر ${secrets[0][0]}) — انقله إلى متغيرات البيئة.`)
   const fns = (text.match(/\b(function|def|func|fn)\s+\w+|=>\s*\{|class\s+\w+/g) || []).length
   if (fns) notes.push(`تقريبًا **${fns}** دالة/صنف معرّف.`)
@@ -85,14 +85,14 @@ function codeReview(text, name = '') {
   return notes
 }
 
-function fileCard(f) {
+function fileCard(f: any) {
   const kb = f.size < 1024 ? `${f.size} بايت` : f.size < 1048576 ? `${(f.size / 1024).toFixed(1)} كيلوبايت` : `${(f.size / 1048576).toFixed(2)} ميغابايت`
   return { kb }
 }
 
-function describeFile(f) {
+function describeFile(f: any): string {
   const { kb } = fileCard(f)
-  const out = [`### 📄 ${f.name}`, '', `\`${f.ext || '—'}\` · ${kb} · النوع: **${f.kind}**${f.note ? ` · ${f.note}` : ''}`, '']
+  const out: string[] = [`### 📄 ${f.name}`, '', `\`${f.ext || '—'}\` · ${kb} · النوع: **${f.kind}**${f.note ? ` · ${f.note}` : ''}`, '']
 
   if (f.kind === 'image') {
     out.push('صورة مرفوعة ومعروضة في المحادثة. المحرك المحلي يقرأ البيانات الوصفية فقط؛ للتحليل البصري العميق وصّل مزوّد نماذج من الإعدادات (⚙️).')
@@ -132,9 +132,9 @@ function describeFile(f) {
   return out.join('\n')
 }
 
-function searchInFiles(query, files) {
+function searchInFiles(query: string, files: any[]) {
   const q = norm(query.toLowerCase())
-  const hits = []
+  const hits: any[] = []
   for (const f of files) {
     if (!f.text) continue
     const lines = f.text.split('\n')
@@ -159,7 +159,7 @@ const HELP = `أنا **لومين**، مساعدك داخل هذا التطبي�
 **لقدرات نموذج لغوي كامل** (توليد حر، ترجمة، برمجة، رؤية للصور): افتح ⚙️ الإعدادات وأضف مفتاح OpenAI أو Anthropic أو Groq أو OpenRouter — يُخزَّن في متصفحك فقط ويُمرَّر مباشرة للمزوّد.`
 
 /** يولّد ردًا نصيًا (Markdown) من الرسالة والملفات. */
-export function localAnswer(message, files = [], history = []) {
+export function localAnswer(message: string, files: any[] = [], _history: any[] = []): string {
   const m = (message || '').trim()
   const low = norm(m.toLowerCase())
   const withText = files.filter((f) => f.text)
@@ -239,7 +239,7 @@ export function localAnswer(message, files = [], history = []) {
   }
 
   const st = textStats(m)
-  const parts = [`### ردّ المحرك المحلي`, '', `طلبك: «${m}»`, '']
+  const parts: string[] = [`### ردّ المحرك المحلي`, '', `طلبك: «${m}»`, '']
   if (st.words > 40) {
     parts.push('حلّلت نصّك مباشرة:', '', ...summarize(m, 4).map((s) => `- ${s}`), '', `**${st.words}** كلمة · **${st.sentences}** جملة · قراءة ≈ ${st.readMinutes} دقيقة`, '')
   }

@@ -11,6 +11,9 @@ import {
   loadChats, saveChats, loadSettings, saveSettings, newChat, uid, titleFrom,
   type Chat, type Message, type Attachment, type Settings,
 } from './lib/store'
+import { extractFileClient } from './lib/extract'
+import { runChat } from './lib/engine'
+import { initNative, syncStatusBar } from './lib/native'
 
 const SUGGESTIONS = [
   { icon: '📄', title: 'حلّل مستندًا', text: 'حلّل الملفات المرفقة واستخرج أهم النقاط' },
@@ -53,6 +56,20 @@ export default function App() {
   }, [chats])
   useEffect(() => { saveSettings(settings) }, [settings])
 
+  // تهيئة أندرويد: شريط الحالة، شاشة البداية، وزر الرجوع
+  const uiRef = useRef({ settings: false, sidebar: false })
+  uiRef.current.settings = showSettings
+  uiRef.current.sidebar = sidebarOpen
+  useEffect(() => {
+    initNative(() => {
+      if (uiRef.current.settings) { setShowSettings(false); return true }
+      if (uiRef.current.sidebar) { setSidebarOpen(false); return true }
+      return false
+    })
+  }, [])
+
+  useEffect(() => { syncStatusBar(settings.theme) }, [settings.theme])
+
   useEffect(() => {
     const r = document.documentElement
     r.dataset.theme = settings.theme
@@ -94,14 +111,11 @@ export default function App() {
     if (!arr.length) return
     setUploading(true)
     try {
-      const fd = new FormData()
-      arr.forEach((f) => fd.append('files', f))
-      const r = await fetch('/api/upload', { method: 'POST', body: fd })
-      const d = await r.json()
-      if (d.ok) setPending((p) => [...p, ...d.files])
-      else alert('تعذّر رفع الملفات: ' + d.error)
+      const out: Attachment[] = []
+      for (const f of arr) out.push(await extractFileClient(f))
+      setPending((p) => [...p, ...out])
     } catch (e: any) {
-      alert('خطأ في الرفع: ' + e.message)
+      alert('خطأ في قراءة الملفات: ' + (e?.message || e))
     } finally {
       setUploading(false)
     }
@@ -164,50 +178,23 @@ export default function App() {
     const ac = new AbortController()
     abortRef.current = ac
 
+    let acc = ''
+    const flush = () => patchChat(chatId, (c) => ({
+      ...c, updatedAt: Date.now(),
+      messages: c.messages.map((m) => (m.id === botMsg.id ? { ...m, content: acc } : m)),
+    }))
+
     try {
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        signal: ac.signal,
-        body: JSON.stringify({
-          message: text,
-          files,
-          history,
-          settings: {
-            provider: settings.provider, apiKey: settings.apiKey, model: settings.model,
-            baseUrl: settings.baseUrl, temperature: settings.temperature,
-          },
-        }),
+      await runChat({
+        message: text, files, history, settings, signal: ac.signal,
+        onMeta: (engine) => patchChat(chatId, (c) => ({
+          ...c, messages: c.messages.map((m) => (m.id === botMsg.id ? { ...m, engine } : m)),
+        })),
+        onWarn: (warn) => patchChat(chatId, (c) => ({
+          ...c, messages: c.messages.map((m) => (m.id === botMsg.id ? { ...m, warn } : m)),
+        })),
+        onDelta: (t) => { acc += t; flush() },
       })
-      if (!res.body) throw new Error('لا استجابة من الخادم')
-      const reader = res.body.getReader()
-      const dec = new TextDecoder()
-      let buf = ''
-      let acc = ''
-
-      const flush = () => patchChat(chatId, (c) => ({
-        ...c, updatedAt: Date.now(),
-        messages: c.messages.map((m) => (m.id === botMsg.id ? { ...m, content: acc } : m)),
-      }))
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buf += dec.decode(value, { stream: true })
-        const frames = buf.split('\n\n')
-        buf = frames.pop() || ''
-        for (const frame of frames) {
-          const ev = /^event: (.+)$/m.exec(frame)?.[1]
-          const dataLine = /^data: (.+)$/m.exec(frame)?.[1]
-          if (!dataLine) continue
-          let data: any
-          try { data = JSON.parse(dataLine) } catch { continue }
-          if (ev === 'delta') { acc += data.t; flush() }
-          else if (ev === 'meta') patchChat(chatId, (c) => ({ ...c, messages: c.messages.map((m) => (m.id === botMsg.id ? { ...m, engine: data.engine } : m)) }))
-          else if (ev === 'warn') patchChat(chatId, (c) => ({ ...c, messages: c.messages.map((m) => (m.id === botMsg.id ? { ...m, warn: data.message } : m)) }))
-          else if (ev === 'error') { acc += `\n\n> ⚠️ ${data.message}`; flush() }
-        }
-      }
       patchChat(chatId, (c) => ({
         ...c, messages: c.messages.map((m) => (m.id === botMsg.id ? { ...m, content: acc, streaming: false } : m)),
       }))
